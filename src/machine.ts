@@ -20,10 +20,8 @@ export type PlayerState = {
   held: Phase | null;
 };
 
-export const COUNTDOWN_MS = 3000;
-export const REST_BEATS = 2;
-export function restMs(bpm: number): number {
-  return REST_BEATS * elementMs(bpm);
+export function restMs(bpm: number, beats = 1): number {
+  return beats * elementMs(bpm);
 }
 
 export function elementMs(bpm: number, beatsPerElement = 1): number {
@@ -104,7 +102,7 @@ export function createPlayer(length: number, rounds: number): PlayerState {
   };
 }
 
-export function start(state: PlayerState, now: number, manual: boolean): PlayerState {
+export function start(state: PlayerState, now: number, manual: boolean, bpm = 60, countdownBeats = 2): PlayerState {
   if (state.phase === "paused") return resume(state, now);
   if (state.phase !== "idle" && state.phase !== "completed") return state;
   const base = {
@@ -115,7 +113,7 @@ export function start(state: PlayerState, now: number, manual: boolean): PlayerS
     held: null,
   };
   if (manual) return { ...base, phase: "running", deadline: null };
-  return { ...base, phase: "countdown", deadline: now + COUNTDOWN_MS };
+  return { ...base, phase: "countdown", deadline: now + countdownBeats * elementMs(bpm) };
 }
 
 export function pause(state: PlayerState, now: number): PlayerState {
@@ -213,6 +211,7 @@ export function tick(
   state: PlayerState,
   now: number,
   stepDuration: number | ((index: number) => number),
+  restDuration = elementMs(60),
 ): PlayerState {
   const span = (index: number) => {
     const value = typeof stepDuration === "function" ? stepDuration(index) : stepDuration;
@@ -237,7 +236,7 @@ export function tick(
       next = {
         ...next,
         phase: "resting",
-        deadline: next.deadline + restMs(60000 / span(next.index)),
+        deadline: next.deadline + restDuration,
       };
       continue;
     }
@@ -285,10 +284,12 @@ export function exercisePlanMs(
   bpm: number,
   rounds: number,
   portion: number,
+  countdownBeats = 2,
+  restBeats = 1,
 ): number {
   const cycles = Math.max(1, rounds);
   const round = roundMs(length, wordStarts, bpm, portion);
-  return COUNTDOWN_MS + cycles * round + Math.max(0, cycles - 1) * restMs(bpm);
+  return countdownBeats * elementMs(bpm) + cycles * round + Math.max(0, cycles - 1) * restMs(bpm, restBeats);
 }
 
 export function remainingExerciseMs(
@@ -297,16 +298,18 @@ export function remainingExerciseMs(
   wordStarts: readonly number[],
   bpm: number,
   portion: number,
+  countdownBeats = 2,
+  restBeats = 1,
 ): number {
   if (state.phase === "completed") return 0;
-  if (state.phase === "idle") return exercisePlanMs(state.length, wordStarts, bpm, state.rounds, portion);
+  if (state.phase === "idle") return exercisePlanMs(state.length, wordStarts, bpm, state.rounds, portion, countdownBeats, restBeats);
   const round = roundMs(state.length, wordStarts, bpm, portion);
   const phase = state.phase === "paused" ? state.held : state.phase;
   const leftNow = state.phase === "paused"
     ? Math.max(0, state.remainingMs ?? 0)
     : state.deadline == null ? 0 : Math.max(0, state.deadline - now);
   if (phase === "countdown") {
-    return leftNow + state.rounds * round + Math.max(0, state.rounds - 1) * restMs(bpm);
+    return leftNow + state.rounds * round + Math.max(0, state.rounds - 1) * restMs(bpm, restBeats);
   }
   if (phase === "running") {
     let after = 0;
@@ -314,13 +317,13 @@ export function remainingExerciseMs(
       after += beatMs(bpm, index, state.length, wordStarts, portion);
     }
     const rests = Math.max(0, state.rounds - state.round);
-    return leftNow + after + rests * round + rests * restMs(bpm);
+    return leftNow + after + rests * round + rests * restMs(bpm, restBeats);
   }
   if (phase === "resting") {
     const later = Math.max(0, state.rounds - state.round);
-    return leftNow + later * round + Math.max(0, later - 1) * restMs(bpm);
+    return leftNow + later * round + Math.max(0, later - 1) * restMs(bpm, restBeats);
   }
-  return exercisePlanMs(state.length, wordStarts, bpm, state.rounds, portion);
+  return exercisePlanMs(state.length, wordStarts, bpm, state.rounds, portion, countdownBeats, restBeats);
 }
 
 function clamp(value: number, min: number, max: number): number {

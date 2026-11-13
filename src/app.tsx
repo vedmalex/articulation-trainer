@@ -11,6 +11,7 @@ import {
   cancel,
   createPlayer,
   beatMs,
+  elementMs,
   exercisePlanMs,
   pause,
   previewWordIndex,
@@ -89,6 +90,8 @@ export function App() {
   const [pulseOn, setPulseOn] = useState(() => loadPrefs().pulse);
   const [rounds, setRounds] = useState(() => loadPrefs().rounds);
   const [portion, setPortion] = useState(() => loadPrefs().portion);
+  const [countdownBeats, setCountdownBeats] = useState(() => loadPrefs().countdownBeats);
+  const [restBeats, setRestBeats] = useState(() => loadPrefs().restBeats);
   const [exerciseBpm, setExerciseBpm] = useState(() => loadPrefs().bpm);
   const [textBpm, setTextBpm] = useState(() => loadPrefs().textBpm);
   const currentExercise = route.name === "train" ? exerciseById(route.id) : undefined;
@@ -192,13 +195,29 @@ export function App() {
               {Array.from({ length: 12 }, (_, index) => <option value={index + 1}>{index + 1}</option>)}
             </select>
           </label>
+          <label class="field">Подготовка (такты)
+            <select value={countdownBeats} onChange={(event) => {
+              const value = Number((event.currentTarget as HTMLSelectElement).value);
+              setCountdownBeats(value); savePrefs({ countdownBeats: value });
+            }}>
+              {Array.from({ length: 5 }, (_, index) => <option value={index + 1}>{index + 1}</option>)}
+            </select>
+          </label>
+          <label class="field">Пауза между циклами (такты)
+            <select value={restBeats} onChange={(event) => {
+              const value = Number((event.currentTarget as HTMLSelectElement).value);
+              setRestBeats(value); savePrefs({ restBeats: value });
+            }}>
+              {Array.from({ length: 3 }, (_, index) => <option value={index + 1}>{index + 1}</option>)}
+            </select>
+          </label>
         </div>
       </details>
       </div>
       {route.name === "home" && <Home />}
       {route.name === "list" && <Catalog category={route.category} />}
       {route.name === "train" && (
-        <Trainer exerciseId={route.id} queue={route.queue} at={route.at ?? 0} manual={manual} pulseOn={pulseOn} rounds={rounds} portion={portion} exerciseBpm={exerciseBpm} textBpm={textBpm} />
+        <Trainer exerciseId={route.id} queue={route.queue} at={route.at ?? 0} manual={manual} pulseOn={pulseOn} rounds={rounds} portion={portion} exerciseBpm={exerciseBpm} textBpm={textBpm} countdownBeats={countdownBeats} restBeats={restBeats} />
       )}
       {route.name === "history" && <History />}
       <footer class="license-note">
@@ -229,7 +248,7 @@ function Home() {
           const first = playlist[0];
           if (!first) return null;
           const total = playlist.reduce(
-            (sum, item) => sum + exercisePlanMs(item.exercise.elements.length, item.exercise.wordStarts, isTextExercise(item.exercise) ? prefs.textBpm : prefs.bpm, prefs.rounds, prefs.portion),
+            (sum, item) => sum + exercisePlanMs(item.exercise.elements.length, item.exercise.wordStarts, isTextExercise(item.exercise) ? prefs.textBpm : prefs.bpm, prefs.rounds, prefs.portion, prefs.countdownBeats, prefs.restBeats),
             0,
           );
           return (
@@ -263,7 +282,7 @@ function Catalog({ category }: { category: Category }) {
   );
 }
 
-function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exerciseBpm, textBpm }: { exerciseId: string; queue?: string; at: number; manual: boolean; pulseOn: boolean; rounds: number; portion: number; exerciseBpm: number; textBpm: number }) {
+function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exerciseBpm, textBpm, countdownBeats, restBeats }: { exerciseId: string; queue?: string; at: number; manual: boolean; pulseOn: boolean; rounds: number; portion: number; exerciseBpm: number; textBpm: number; countdownBeats: number; restBeats: number }) {
   const program = queue ? programById(queue) : undefined;
   const playlist = useMemo(() => (program ? programPlaylist(program) : []), [program]);
   const slot = playlist[at];
@@ -348,7 +367,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
     const fresh = createPlayer(exercise?.elements.length ?? 1, rounds);
     if (sessionStorage.getItem(RUN_KEY) === "1") {
       startedAt.current = Date.now();
-      setPlayer(start(fresh, performance.now(), manualRef.current));
+      setPlayer(start(fresh, performance.now(), manualRef.current, bpmRef.current, countdownBeats));
     } else {
       setPlayer(fresh);
     }
@@ -382,7 +401,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
         if (manual || current.phase === "paused" || current.phase === "idle" || current.phase === "completed") {
           return current;
         }
-        return tick(current, now, (index) => beatMs(bpmRef.current, index, current.length, wordsRef.current, portionRef.current));
+        return tick(current, now, (index) => beatMs(bpmRef.current, index, current.length, wordsRef.current, portionRef.current), restBeats * elementMs(bpmRef.current));
       });
       const preview = previewWordIndex(
         playerRef.current,
@@ -408,7 +427,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
         const leftMs = phaseRef.current === "paused"
           ? (remainingRef.current ?? 0)
           : (deadlineRef.current ?? now) - now;
-        const count = Math.max(1, Math.ceil(leftMs / 1000));
+        const count = Math.max(1, Math.ceil(leftMs / elementMs(bpmRef.current)));
         if (count !== shownCount) {
           shownCount = count;
           setCountLeft(count);
@@ -421,7 +440,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
     };
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
-  }, [manual, bpm]);
+  }, [manual, bpm, restBeats]);
 
   useEffect(() => {
     const active = pulseOn && !manual && player.phase === "running";
@@ -515,7 +534,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
       }
       sessionStorage.setItem(RUN_KEY, "1");
       if (startedAt.current == null) startedAt.current = Date.now();
-      return start(current, now, manual);
+      return start(current, now, manual, bpm, countdownBeats);
     });
   }
 
@@ -540,14 +559,14 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
     }
   }
 
-  const exerciseLeft = remainingExerciseMs(player, clock, exercise.wordStarts, bpm, portion);
+  const exerciseLeft = remainingExerciseMs(player, clock, exercise.wordStarts, bpm, portion, countdownBeats, restBeats);
   let blockLeft: number | null = null;
   if (slot) {
     blockLeft = exerciseLeft;
     for (let index = at + 1; index < playlist.length; index += 1) {
       if (playlist[index].stepTitle !== slot.stepTitle) break;
       const item = playlist[index].exercise;
-      blockLeft += exercisePlanMs(item.elements.length, item.wordStarts, isTextExercise(item) ? textBpm : exerciseBpm, rounds, portion);
+      blockLeft += exercisePlanMs(item.elements.length, item.wordStarts, isTextExercise(item) ? textBpm : exerciseBpm, rounds, portion, countdownBeats, restBeats);
     }
   }
 
@@ -669,7 +688,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
         </div>
       )}
       {(player.phase === "countdown" || player.phase === "resting" || (player.phase === "paused" && (player.held === "countdown" || player.held === "resting"))) && (
-        <p class="count-line" aria-hidden="true">{countLeft ?? 3}</p>
+        <p class="count-line" aria-hidden="true">{countLeft ?? (player.phase === "resting" || player.held === "resting" ? restBeats : countdownBeats)}</p>
       )}
       <div class={`stage ${isText ? "stage-text" : ""}`} aria-live="polite">
         {displayRows(exercise.elements, exercise.wordStarts).map((line) => (

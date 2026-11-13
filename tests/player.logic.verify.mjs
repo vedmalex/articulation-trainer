@@ -3,8 +3,6 @@ import { budgetsForStep } from "../src/budget.ts";
 import { beatsOf, displayRows, syllablesOfWord, wordLines } from "../src/syllables.ts";
 import programs from "../data/programs.json" with { type: "json" };
 import {
-  COUNTDOWN_MS,
-  REST_MS,
   cancel,
   createPlayer,
   elementMs,
@@ -22,6 +20,8 @@ import {
 } from "../src/machine.ts";
 
 const STEP = elementMs(60);
+const COUNTDOWN_MS = 2 * STEP;
+const REST_MS = STEP;
 
 function playTo(state, now, stepDuration = STEP) {
   return tick(state, now, stepDuration);

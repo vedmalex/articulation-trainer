@@ -7,6 +7,8 @@ export type Prefs = {
   manual: boolean;
   pulse: boolean;
   portion: number;
+  countdownBeats: number;
+  restBeats: number;
 };
 
 const KEY = "articulation-prefs";
@@ -19,7 +21,9 @@ const DEFAULTS: Prefs = {
   rounds: 3,
   manual: false,
   pulse: true,
-  portion: 0.45,
+  portion: 0.3,
+  countdownBeats: 2,
+  restBeats: 1,
 };
 
 export function loadPrefs(): Prefs {
@@ -45,7 +49,14 @@ export function loadPrefs(): Prefs {
     manual: typeof stored.manual === "boolean" ? stored.manual : DEFAULTS.manual,
     pulse: typeof stored.pulse === "boolean" ? stored.pulse : DEFAULTS.pulse,
     portion: finiteIn(stored.portion, 0.2, 1) ?? DEFAULTS.portion,
+    countdownBeats: integerIn(stored.countdownBeats, 1, 5) ?? DEFAULTS.countdownBeats,
+    restBeats: integerIn(stored.restBeats, 1, 3) ?? DEFAULTS.restBeats,
   };
+}
+
+function integerIn(value: unknown, min: number, max: number): number | null {
+  const valid = finiteIn(value, min, max);
+  return valid !== null && Number.isInteger(valid) ? valid : null;
 }
 
 export function savePrefs(patch: Partial<Prefs>): Prefs {
