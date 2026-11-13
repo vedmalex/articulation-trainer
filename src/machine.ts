@@ -37,12 +37,16 @@ export function beatMs(
   length: number,
   wordStarts: readonly number[],
   portion: number,
+  elements: readonly string[] = [],
+  punctuationPauses = false,
 ): number {
   const full = elementMs(bpm);
   const share = Number.isFinite(portion) ? Math.min(1, Math.max(0.2, portion)) : 1;
   const next = index + 1;
   const insideWord = next < length && !wordStarts.includes(next);
-  return insideWord ? full * share : full;
+  const ending = elements[index] ?? "";
+  const multiplier = /[.!?…][»”"')\]]*$/u.test(ending) ? 1 : /[,;:][»”"')\]]*$/u.test(ending) ? 0.5 : 0;
+  return insideWord ? full * share : full + (punctuationPauses ? full * (1 - share) * multiplier : 0);
 }
 
 /** Whole next word is shown during the pause after the current word, before its syllables start. */
@@ -53,6 +57,7 @@ export function previewWordIndex(
   bpm: number,
   portion: number,
   elements: readonly string[] = [],
+  punctuationPauses = false,
 ): number | null {
   const phase = state.phase === "paused" ? state.held : state.phase;
   const share = Number.isFinite(portion) ? Math.min(1, Math.max(0.2, portion)) : 1;
@@ -66,8 +71,8 @@ export function previewWordIndex(
     const next = state.index + 1;
     const boundary = next >= state.length || wordStarts.includes(next);
     if (!boundary || next >= state.length) return null;
-    const beat = beatMs(bpm, state.index, state.length, wordStarts, portion);
-    if (beat - left < beat * share) return null;
+    const beat = beatMs(bpm, state.index, state.length, wordStarts, portion, elements, punctuationPauses);
+    if (beat - left < elementMs(bpm) * share) return null;
     let word = 0;
     for (let start = 0; start < wordStarts.length; start += 1) {
       if (wordStarts[start] <= next) word = start;
@@ -272,9 +277,9 @@ export function progressRatio(state: PlayerState, now: number, stepDuration: num
   return clamp(done / total, 0, 1);
 }
 
-export function roundMs(length: number, wordStarts: readonly number[], bpm: number, portion: number): number {
+export function roundMs(length: number, wordStarts: readonly number[], bpm: number, portion: number, elements: readonly string[] = [], punctuationPauses = false): number {
   let sum = 0;
-  for (let index = 0; index < length; index += 1) sum += beatMs(bpm, index, length, wordStarts, portion);
+  for (let index = 0; index < length; index += 1) sum += beatMs(bpm, index, length, wordStarts, portion, elements, punctuationPauses);
   return sum;
 }
 
@@ -286,9 +291,11 @@ export function exercisePlanMs(
   portion: number,
   countdownBeats = 2,
   restBeats = 1,
+  elements: readonly string[] = [],
+  punctuationPauses = false,
 ): number {
   const cycles = Math.max(1, rounds);
-  const round = roundMs(length, wordStarts, bpm, portion);
+  const round = roundMs(length, wordStarts, bpm, portion, elements, punctuationPauses);
   return countdownBeats * elementMs(bpm) + cycles * round + Math.max(0, cycles - 1) * restMs(bpm, restBeats);
 }
 
@@ -300,10 +307,12 @@ export function remainingExerciseMs(
   portion: number,
   countdownBeats = 2,
   restBeats = 1,
+  elements: readonly string[] = [],
+  punctuationPauses = false,
 ): number {
   if (state.phase === "completed") return 0;
-  if (state.phase === "idle") return exercisePlanMs(state.length, wordStarts, bpm, state.rounds, portion, countdownBeats, restBeats);
-  const round = roundMs(state.length, wordStarts, bpm, portion);
+  if (state.phase === "idle") return exercisePlanMs(state.length, wordStarts, bpm, state.rounds, portion, countdownBeats, restBeats, elements, punctuationPauses);
+  const round = roundMs(state.length, wordStarts, bpm, portion, elements, punctuationPauses);
   const phase = state.phase === "paused" ? state.held : state.phase;
   const leftNow = state.phase === "paused"
     ? Math.max(0, state.remainingMs ?? 0)
@@ -314,7 +323,7 @@ export function remainingExerciseMs(
   if (phase === "running") {
     let after = 0;
     for (let index = state.index + 1; index < state.length; index += 1) {
-      after += beatMs(bpm, index, state.length, wordStarts, portion);
+      after += beatMs(bpm, index, state.length, wordStarts, portion, elements, punctuationPauses);
     }
     const rests = Math.max(0, state.rounds - state.round);
     return leftNow + after + rests * round + rests * restMs(bpm, restBeats);
@@ -323,7 +332,7 @@ export function remainingExerciseMs(
     const later = Math.max(0, state.rounds - state.round);
     return leftNow + later * round + Math.max(0, later - 1) * restMs(bpm, restBeats);
   }
-  return exercisePlanMs(state.length, wordStarts, bpm, state.rounds, portion, countdownBeats, restBeats);
+  return exercisePlanMs(state.length, wordStarts, bpm, state.rounds, portion, countdownBeats, restBeats, elements, punctuationPauses);
 }
 
 function clamp(value: number, min: number, max: number): number {

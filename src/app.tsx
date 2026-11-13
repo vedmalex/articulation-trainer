@@ -92,6 +92,7 @@ export function App() {
   const [portion, setPortion] = useState(() => loadPrefs().portion);
   const [countdownBeats, setCountdownBeats] = useState(() => loadPrefs().countdownBeats);
   const [restBeats, setRestBeats] = useState(() => loadPrefs().restBeats);
+  const [punctuationPauses, setPunctuationPauses] = useState(() => loadPrefs().punctuationPauses);
   const [exerciseBpm, setExerciseBpm] = useState(() => loadPrefs().bpm);
   const [textBpm, setTextBpm] = useState(() => loadPrefs().textBpm);
   const currentExercise = route.name === "train" ? exerciseById(route.id) : undefined;
@@ -211,13 +212,19 @@ export function App() {
               {Array.from({ length: 3 }, (_, index) => <option value={index + 1}>{index + 1}</option>)}
             </select>
           </label>
+          <label class="field">Паузы на знаках препинания
+            <select value={punctuationPauses ? "on" : "off"} onChange={(event) => {
+              const value = (event.currentTarget as HTMLSelectElement).value === "on";
+              setPunctuationPauses(value); savePrefs({ punctuationPauses: value });
+            }}><option value="on">Включены</option><option value="off">Выключены</option></select>
+          </label>
         </div>
       </details>
       </div>
       {route.name === "home" && <Home />}
       {route.name === "list" && <Catalog category={route.category} />}
       {route.name === "train" && (
-        <Trainer exerciseId={route.id} queue={route.queue} at={route.at ?? 0} manual={manual} pulseOn={pulseOn} rounds={rounds} portion={portion} exerciseBpm={exerciseBpm} textBpm={textBpm} countdownBeats={countdownBeats} restBeats={restBeats} />
+        <Trainer exerciseId={route.id} queue={route.queue} at={route.at ?? 0} manual={manual} pulseOn={pulseOn} rounds={rounds} portion={portion} exerciseBpm={exerciseBpm} textBpm={textBpm} countdownBeats={countdownBeats} restBeats={restBeats} punctuationPauses={punctuationPauses} />
       )}
       {route.name === "history" && <History />}
       <footer class="license-note">
@@ -248,7 +255,7 @@ function Home() {
           const first = playlist[0];
           if (!first) return null;
           const total = playlist.reduce(
-            (sum, item) => sum + exercisePlanMs(item.exercise.elements.length, item.exercise.wordStarts, isTextExercise(item.exercise) ? prefs.textBpm : prefs.bpm, prefs.rounds, prefs.portion, prefs.countdownBeats, prefs.restBeats),
+            (sum, item) => sum + exercisePlanMs(item.exercise.elements.length, item.exercise.wordStarts, isTextExercise(item.exercise) ? prefs.textBpm : prefs.bpm, prefs.rounds, prefs.portion, prefs.countdownBeats, prefs.restBeats, item.exercise.elements, isTextExercise(item.exercise) && prefs.punctuationPauses),
             0,
           );
           return (
@@ -282,7 +289,7 @@ function Catalog({ category }: { category: Category }) {
   );
 }
 
-function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exerciseBpm, textBpm, countdownBeats, restBeats }: { exerciseId: string; queue?: string; at: number; manual: boolean; pulseOn: boolean; rounds: number; portion: number; exerciseBpm: number; textBpm: number; countdownBeats: number; restBeats: number }) {
+function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exerciseBpm, textBpm, countdownBeats, restBeats, punctuationPauses }: { exerciseId: string; queue?: string; at: number; manual: boolean; pulseOn: boolean; rounds: number; portion: number; exerciseBpm: number; textBpm: number; countdownBeats: number; restBeats: number; punctuationPauses: boolean }) {
   const program = queue ? programById(queue) : undefined;
   const playlist = useMemo(() => (program ? programPlaylist(program) : []), [program]);
   const slot = playlist[at];
@@ -386,7 +393,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
         phase: "paused",
         held: "running",
         deadline: null,
-        remainingMs: manual ? null : beatMs(bpm, current.index, current.length, exercise?.wordStarts ?? [], portion),
+        remainingMs: manual ? null : beatMs(bpm, current.index, current.length, exercise?.wordStarts ?? [], portion, exercise?.elements ?? [], isText && punctuationPauses),
       };
     });
   }, [manual]);
@@ -401,7 +408,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
         if (manual || current.phase === "paused" || current.phase === "idle" || current.phase === "completed") {
           return current;
         }
-        return tick(current, now, (index) => beatMs(bpmRef.current, index, current.length, wordsRef.current, portionRef.current), restBeats * elementMs(bpmRef.current));
+        return tick(current, now, (index) => beatMs(bpmRef.current, index, current.length, wordsRef.current, portionRef.current, elementsRef.current, isText && punctuationPauses), restBeats * elementMs(bpmRef.current));
       });
       const preview = previewWordIndex(
         playerRef.current,
@@ -410,6 +417,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
         bpmRef.current,
         portionRef.current,
         elementsRef.current,
+        isText && punctuationPauses,
       );
       if (preview !== shownPreview) {
         shownPreview = preview;
@@ -440,7 +448,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
     };
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
-  }, [manual, bpm, restBeats]);
+  }, [manual, bpm, restBeats, isText, punctuationPauses]);
 
   useEffect(() => {
     const active = pulseOn && !manual && player.phase === "running";
@@ -484,7 +492,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
       } else if (event.code === "ArrowRight") {
         event.preventDefault();
         const now = performance.now();
-        setPlayer((current) => skipStep(current, 1, now, (index) => beatMs(bpmRef.current, index, current.length, wordsRef.current, portionRef.current), {
+        setPlayer((current) => skipStep(current, 1, now, (index) => beatMs(bpmRef.current, index, current.length, wordsRef.current, portionRef.current, elementsRef.current, isText && punctuationPauses), {
           manual,
           inWordPause: previewWord != null,
         }));
@@ -504,14 +512,14 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
       return;
     }
     const now = performance.now();
-    setPlayer((current) => skipStep(current, -1, now, (index) => beatMs(bpm, index, current.length, exercise?.wordStarts ?? [], portion), {
+    setPlayer((current) => skipStep(current, -1, now, (index) => beatMs(bpm, index, current.length, exercise?.wordStarts ?? [], portion, exercise?.elements ?? [], isText && punctuationPauses), {
       manual,
       inWordPause: previewWord != null,
     }));
   }
 
   function goForward() {
-    setPlayer((current) => skipStep(current, 1, performance.now(), (index) => beatMs(bpm, index, current.length, exercise?.wordStarts ?? [], portion), {
+    setPlayer((current) => skipStep(current, 1, performance.now(), (index) => beatMs(bpm, index, current.length, exercise?.wordStarts ?? [], portion, exercise?.elements ?? [], isText && punctuationPauses), {
       manual,
       inWordPause: previewWord != null,
     }));
@@ -559,14 +567,14 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
     }
   }
 
-  const exerciseLeft = remainingExerciseMs(player, clock, exercise.wordStarts, bpm, portion, countdownBeats, restBeats);
+  const exerciseLeft = remainingExerciseMs(player, clock, exercise.wordStarts, bpm, portion, countdownBeats, restBeats, exercise.elements, isText && punctuationPauses);
   let blockLeft: number | null = null;
   if (slot) {
     blockLeft = exerciseLeft;
     for (let index = at + 1; index < playlist.length; index += 1) {
       if (playlist[index].stepTitle !== slot.stepTitle) break;
       const item = playlist[index].exercise;
-      blockLeft += exercisePlanMs(item.elements.length, item.wordStarts, isTextExercise(item) ? textBpm : exerciseBpm, rounds, portion, countdownBeats, restBeats);
+      blockLeft += exercisePlanMs(item.elements.length, item.wordStarts, isTextExercise(item) ? textBpm : exerciseBpm, rounds, portion, countdownBeats, restBeats, item.elements, isTextExercise(item) && punctuationPauses);
     }
   }
 
@@ -612,7 +620,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
                 round,
                 deadline: null,
                 held: "running",
-                remainingMs: manual ? null : beatMs(bpm, current.index, current.length, exercise.wordStarts, portion),
+                remainingMs: manual ? null : beatMs(bpm, current.index, current.length, exercise.wordStarts, portion, exercise.elements, isText && punctuationPauses),
               }));
               sessionStorage.removeItem(RUN_KEY);
             }}
@@ -634,7 +642,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
                 index,
                 deadline: null,
                 held: "running",
-                remainingMs: manual ? null : beatMs(bpm, index, current.length, exercise.wordStarts, portion),
+                remainingMs: manual ? null : beatMs(bpm, index, current.length, exercise.wordStarts, portion, exercise.elements, isText && punctuationPauses),
               }));
               sessionStorage.removeItem(RUN_KEY);
             }}
