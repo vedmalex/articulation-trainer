@@ -73,6 +73,10 @@ function Icon({ name }: { name: string }) {
     sun: "M12 4v2m0 12v2M4 12h2m12 0h2M6.3 6.3l1.4 1.4m8.6 8.6 1.4 1.4m0-11.4-1.4 1.4m-8.6 8.6-1.4 1.4M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z",
     screen: "M4 9V4h5m6 0h5v5M20 15v5h-5M9 20H4v-5",
     arrow: "M5 12h14m-5-5 5 5-5 5",
+    back: "M15 5l-7 7 7 7",
+    next: "M9 5l7 7-7 7",
+    reset: "M4 10a8 8 0 1 1 2 7M4 4v6h6",
+    menu: "M4 6h16M4 12h16M4 18h16",
   };
   return <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
 }
@@ -85,6 +89,13 @@ export function App() {
   const [pulseOn, setPulseOn] = useState(() => loadPrefs().pulse);
   const [rounds, setRounds] = useState(() => loadPrefs().rounds);
   const [portion, setPortion] = useState(() => loadPrefs().portion);
+  const [exerciseBpm, setExerciseBpm] = useState(() => loadPrefs().bpm);
+  const [textBpm, setTextBpm] = useState(() => loadPrefs().textBpm);
+  const currentExercise = route.name === "train" ? exerciseById(route.id) : undefined;
+  const textTempo = currentExercise ? isTextExercise(currentExercise) : false;
+  const bpm = textTempo ? textBpm : exerciseBpm;
+  const setBpm = textTempo ? setTextBpm : setExerciseBpm;
+  const menuRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     const onHash = () => setRoute(readRoute());
@@ -105,21 +116,45 @@ export function App() {
   return (
     <div class="shell">
       <header class="top">
+        {route.name !== "home" && <button class="ghost icon-button" type="button" onClick={() => menuRef.current?.showModal()} aria-label="Открыть меню" aria-haspopup="dialog" aria-controls="main-menu"><Icon name="menu" /></button>}
         <a class="brand" href="#/">Артикуляция</a>
+        {route.name === "train" && <label class="header-tempo"><span>Темп {textTempo ? "текста" : "упражнений"}</span><select value={bpm} onChange={(event) => {
+          const value = Number((event.currentTarget as HTMLSelectElement).value);
+          setBpm(value); savePrefs(textTempo ? { textBpm: value } : { bpm: value });
+        }}>{[...new Set([...Array.from({ length: 22 }, (_, index) => 30 + index * 10), bpm])].sort((a, b) => a - b).map((value) => <option value={value}>{value} BPM</option>)}</select></label>}
         <div class="tools">
           <button class="ghost" type="button" onClick={() => setScale(scale >= 1.45 ? 1 : Number((scale + 0.15).toFixed(2)))} aria-label="Крупнее текст">
             А+
           </button>
-          <button class="ghost" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+          <button class="ghost" type="button" aria-label={theme === "dark" ? "Светлая тема" : "Тёмная тема"} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
             <Icon name={theme === "dark" ? "sun" : "moon"} />
-            {theme === "dark" ? "Светлая" : "Тёмная"}
+            <span class="tool-label">{theme === "dark" ? "Светлая" : "Тёмная"}</span>
           </button>
-          <button class="ghost" type="button" onClick={() => void toggleFullscreen()}>
+          <button class="ghost" type="button" aria-label="Полный экран" onClick={() => void toggleFullscreen()}>
             <Icon name="screen" />
-            Экран
+            <span class="tool-label">Экран</span>
           </button>
         </div>
       </header>
+      <div class="header-actions">
+      <dialog class="main-menu" id="main-menu" ref={menuRef} aria-labelledby="menu-title">
+        <div class="drawer-header"><strong id="menu-title">Навигация</strong><button class="ghost icon-button" type="button" aria-label="Закрыть меню" onClick={() => menuRef.current?.close()}>×</button></div>
+        <nav class="main-menu-content" aria-label="Основное меню" onClick={(event) => {
+          if ((event.target as Element).closest("a")) {
+            sessionStorage.removeItem(RUN_KEY);
+            menuRef.current?.close();
+          }
+        }}>
+          <a href="#/">Главная</a>
+          {lists.map((item) => <a href={`#/list/${item.category}`}><Icon name={item.category} />{item.title}</a>)}
+          <a href="#/history"><Icon name="history" />История</a>
+          <span class="menu-heading">Программы</span>
+          {programs.map((program) => {
+            const first = programPlaylist(program)[0];
+            return first ? <a href={`#/train/${first.exercise.id}?queue=${program.id}&at=0`}>{program.title}</a> : null;
+          })}
+        </nav>
+      </dialog>
       <details class="settings">
         <summary>Настройки</summary>
         <div class="settings-content">
@@ -159,10 +194,11 @@ export function App() {
           </label>
         </div>
       </details>
+      </div>
       {route.name === "home" && <Home />}
       {route.name === "list" && <Catalog category={route.category} />}
       {route.name === "train" && (
-        <Trainer exerciseId={route.id} queue={route.queue} at={route.at ?? 0} manual={manual} pulseOn={pulseOn} rounds={rounds} portion={portion} />
+        <Trainer exerciseId={route.id} queue={route.queue} at={route.at ?? 0} manual={manual} pulseOn={pulseOn} rounds={rounds} portion={portion} exerciseBpm={exerciseBpm} textBpm={textBpm} />
       )}
       {route.name === "history" && <History />}
       <footer class="license-note">
@@ -227,16 +263,13 @@ function Catalog({ category }: { category: Category }) {
   );
 }
 
-function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion }: { exerciseId: string; queue?: string; at: number; manual: boolean; pulseOn: boolean; rounds: number; portion: number }) {
+function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exerciseBpm, textBpm }: { exerciseId: string; queue?: string; at: number; manual: boolean; pulseOn: boolean; rounds: number; portion: number; exerciseBpm: number; textBpm: number }) {
   const program = queue ? programById(queue) : undefined;
   const playlist = useMemo(() => (program ? programPlaylist(program) : []), [program]);
   const slot = playlist[at];
   const exercise = exerciseById(exerciseId) ?? slot?.exercise;
-  const [exerciseBpm, setExerciseBpm] = useState(() => loadPrefs().bpm);
-  const [textBpm, setTextBpm] = useState(() => loadPrefs().textBpm);
   const isText = exercise ? isTextExercise(exercise) : false;
   const bpm = isText ? textBpm : exerciseBpm;
-  const setBpm = isText ? setTextBpm : setExerciseBpm;
   const [rating, setRating] = useState<number | null>(null);
   const [saved, setSaved] = useState("");
   const [beat, setBeat] = useState(false);
@@ -321,9 +354,6 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion }: { 
     }
   }, [exercise?.id, rounds]);
 
-  useEffect(() => {
-    savePrefs({ bpm: exerciseBpm, textBpm });
-  }, [exerciseBpm, textBpm]);
 
   const previousManual = useRef(manual);
   useEffect(() => {
@@ -592,16 +622,9 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion }: { 
           />
         ))}
       </nav>
-      <div class="tempo-row"><label class="tempo-picker">
-        <span>Темп {isText ? "текста" : "упражнений"}</span>
-        <select value={bpm} onChange={(event) => setBpm(Number((event.currentTarget as HTMLSelectElement).value))}>
-          {[...new Set([...Array.from({ length: 22 }, (_, index) => 30 + index * 10), bpm])].sort((a, b) => a - b).map((value) => (
-            <option value={value}>{value} BPM</option>
-          ))}
-        </select>
-      </label><button class="ghost" type="button" onClick={resetExercise}>Сброс</button></div>
+      <div class="tempo-row"><button class="ghost icon-button" type="button" onClick={resetExercise} aria-label="Сбросить упражнение" title="Сбросить упражнение"><Icon name="reset" /></button></div>
       <div class="stage-navigation">
-      <button class="ghost side-navigation" type="button" onClick={goBack} aria-label="Назад">‹</button>
+      <button class="ghost side-navigation" type="button" onClick={goBack} aria-label="Назад"><Icon name="back" /></button>
       <div
         class="stage-wrap"
         aria-label={player.phase === "running" || player.phase === "countdown" || player.phase === "resting" ? "Пауза" : "Старт"}
@@ -666,14 +689,9 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion }: { 
         ))}
       </div>
       </div>
-      <button class="ghost side-navigation" type="button" onClick={goForward} aria-label="Вперёд">›</button>
+      <button class="ghost side-navigation" type="button" onClick={goForward} aria-label="Вперёд"><Icon name="next" /></button>
       </div>
       {exercise.note && <p class="meta">{exercise.note}</p>}
-      <div class="controls">
-        <button class="solid" type="button" onClick={toggle} aria-label="Старт или стоп">
-          {player.phase === "running" || player.phase === "countdown" || player.phase === "resting" ? "Стоп" : "Старт"}
-        </button>
-      </div>
       {player.phase === "completed" && (
         <div class="controls" style={{ marginTop: 16 }}>
           <label class="field">Насколько было трудно
