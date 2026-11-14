@@ -101,8 +101,9 @@ h1 { font-family: "Noto Serif", Georgia, serif; font-size: clamp(2rem, 6vw, 3.4r
 .tutor-switch-track span { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--card); transition: transform 180ms ease; }
 .tutor-switch[aria-checked="true"] .tutor-switch-track { background: var(--accent); }
 .tutor-switch[aria-checked="true"] .tutor-switch-track span { transform: translateX(16px); }
-.self-content { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; min-height: 40vh; padding: 24px 0; font-family: "Noto Serif", Georgia, serif; font-size: calc(1.55rem * var(--scale, 1)); line-height: 1.6; }
+.self-content { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; min-height: 40vh; padding: 24px 0; font-family: "Noto Serif", Georgia, serif; font-size: calc(1.55rem * var(--scale, 1)); line-height: 1.6; cursor: pointer; touch-action: pan-y; }
 .self-content p { max-width: 38rem; margin: 0.35em 0; }
+.side-navigation:disabled { opacity: 0.35; cursor: default; }
 .collection-list { list-style-position: inside; padding: 0; display: grid; gap: 8px; }
 .collection-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); }
 .collection-list a { color: var(--ink); }

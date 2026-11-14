@@ -408,6 +408,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
   const sessionId = useRef<string | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const swiped = useRef(false);
+  const selfPointer = useRef<{ x: number; y: number } | null>(null);
   const length = exercise?.elements.length ?? 1;
   const [player, setPlayer] = useState<PlayerState>(() => createPlayer(length, rounds));
   const phaseRef = useRef(player.phase);
@@ -611,13 +612,29 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
 
   if (!tutor) return <main class="train self-training">
     <p class="meta">{program ? `${program.title} · ${slot?.stepTitle ?? ""}` : exercise.group}</p>
+    {series.length > 1 && <nav class="series" aria-label="Упражнения серии">
+      {series.map((item, index) => <a
+        class={item.id === exercise.id && (queue ? index === at : true) ? "current" : ""}
+        href={item.href}
+        title={item.title}
+        aria-label={item.title}
+        aria-current={item.id === exercise.id && (queue ? index === at : true) ? "true" : undefined}
+      />)}
+    </nav>}
     <h1 class="exercise-title">{exercise.title}</h1>
     <button class="ghost favorite-training" type="button" onClick={() => onFavorite(exercise.id)} aria-pressed={collections.favorites.includes(exercise.id)}>{collections.favorites.includes(exercise.id) ? "★ В избранном" : "☆ В избранное"}</button>
-    <div class="self-content">{exercise.text ? <p>{exercise.text}</p> : displayRows(exercise.elements, exercise.wordStarts).map((row) => <p>{row.map((token) => token.text).join(" ")}</p>)}</div>
-    <nav class="controls" aria-label="Переход между упражнениями">
-      {prevHref && <a class="ghost" href={prevHref}>← Предыдущее</a>}
-      {followHref && <a class="ghost" href={followHref}>Следующее →</a>}
-    </nav>
+    <div class="stage-navigation self-navigation">
+      <button class="ghost side-navigation" type="button" disabled={!prevHref} aria-label="Предыдущее упражнение" onClick={() => { if (prevHref) location.hash = prevHref; }}><Icon name="back" /></button>
+      <div class="self-content" onPointerDown={(event) => { selfPointer.current = { x: event.clientX, y: event.clientY }; }} onPointerCancel={() => { selfPointer.current = null; }} onClick={(event) => {
+        const start = selfPointer.current;
+        selfPointer.current = null;
+        if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10 || window.getSelection()?.toString()) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        const target = event.clientX < bounds.left + bounds.width / 2 ? prevHref : followHref;
+        if (target) location.hash = target;
+      }}>{exercise.text ? <p>{exercise.text}</p> : displayRows(exercise.elements, exercise.wordStarts).map((row) => <p>{row.map((token) => token.text).join(" ")}</p>)}</div>
+      <button class="ghost side-navigation" type="button" disabled={!followHref} aria-label="Следующее упражнение" onClick={() => { if (followHref) location.hash = followHref; }}><Icon name="next" /></button>
+    </div>
     {exercise.note && <p class="meta">{exercise.note}</p>}
   </main>;
 
