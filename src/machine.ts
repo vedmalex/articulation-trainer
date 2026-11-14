@@ -30,7 +30,7 @@ export function elementMs(bpm: number, beatsPerElement = 1): number {
   return (60_000 / tempo) * beats;
 }
 
-/** Shorter beat inside a hyphenated word, full beat before the next word. */
+/** Pronunciation time scales with letters; word and punctuation pauses remain tempo-based. */
 export function beatMs(
   bpm: number,
   index: number,
@@ -45,8 +45,10 @@ export function beatMs(
   const next = index + 1;
   const insideWord = next < length && !wordStarts.includes(next);
   const ending = elements[index] ?? "";
+  const letters = Math.max(1, [...ending.normalize("NFC")].filter((character) => /\p{L}/u.test(character)).length);
+  const pronunciation = full * share * letters;
   const multiplier = /[.!?…][»”"')\]]*$/u.test(ending) ? 1 : /[,;:][»”"')\]]*$/u.test(ending) ? 0.5 : 0;
-  return insideWord ? full * share : full + (punctuationPauses ? full * (1 - share) * multiplier : 0);
+  return pronunciation + (insideWord ? 0 : full * (1 - share) * (1 + (punctuationPauses ? multiplier : 0)));
 }
 
 /** Whole next word is shown during the pause after the current word, before its syllables start. */
@@ -72,7 +74,8 @@ export function previewWordIndex(
     const boundary = next >= state.length || wordStarts.includes(next);
     if (!boundary || next >= state.length) return null;
     const beat = beatMs(bpm, state.index, state.length, wordStarts, portion, elements, punctuationPauses);
-    if (beat - left < elementMs(bpm) * share) return null;
+    const letters = Math.max(1, [...(elements[state.index] ?? "").normalize("NFC")].filter((character) => /\p{L}/u.test(character)).length);
+    if (beat - left < elementMs(bpm) * share * letters) return null;
     let word = 0;
     for (let start = 0; start < wordStarts.length; start += 1) {
       if (wordStarts[start] <= next) word = start;
