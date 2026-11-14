@@ -53,8 +53,11 @@ button { cursor: pointer; }
 .main-menu-content a { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; border-radius: 10px; color: var(--ink); text-decoration: none; background: var(--card); border: 1px solid var(--line); }
 .main-menu-content a:hover { border-color: var(--accent); }
 .menu-heading { color: var(--muted); font-size: 0.8rem; margin-top: 8px; }
-.settings { align-self: flex-end; margin-top: 10px; color: var(--muted); font-size: 0.9rem; }
-.settings summary { cursor: pointer; text-align: right; }
+.settings { align-self: flex-start; margin-top: 10px; color: var(--muted); font-size: 0.9rem; }
+.settings summary { display: flex; align-items: center; justify-content: flex-end; min-height: 44px; cursor: pointer; text-align: right; list-style: none; }
+.settings summary::before { content: "▸"; margin-right: 6px; transition: transform 180ms ease; }
+.settings[open] summary::before { transform: rotate(90deg); }
+.settings summary::-webkit-details-marker { display: none; }
 .settings-content { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; padding: 12px 0; }
 .ghost, .solid, .chip {
   border: 1px solid var(--line);
@@ -93,6 +96,13 @@ h1 { font-family: "Noto Serif", Georgia, serif; font-size: clamp(2rem, 6vw, 3.4r
 .exercise-card .card { padding-right: 76px; }
 .favorite-button { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; padding: 0; font-size: 1.35rem; }
 .favorite-training { margin-top: 8px; }
+.tutor-switch { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; border: 0; padding: 0; background: transparent; color: var(--ink); font-size: 0.85rem; }
+.tutor-switch-track { width: 40px; height: 24px; padding: 3px; border-radius: 999px; background: var(--line); transition: background 180ms ease; }
+.tutor-switch-track span { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--card); transition: transform 180ms ease; }
+.tutor-switch[aria-checked="true"] .tutor-switch-track { background: var(--accent); }
+.tutor-switch[aria-checked="true"] .tutor-switch-track span { transform: translateX(16px); }
+.self-content { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; min-height: 40vh; padding: 24px 0; font-family: "Noto Serif", Georgia, serif; font-size: calc(1.55rem * var(--scale, 1)); line-height: 1.6; }
+.self-content p { max-width: 38rem; margin: 0.35em 0; }
 .collection-list { list-style-position: inside; padding: 0; display: grid; gap: 8px; }
 .collection-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); }
 .collection-list a { color: var(--ink); }

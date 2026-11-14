@@ -138,6 +138,7 @@ export function App() {
   const [restBeats, setRestBeats] = useState(() => loadPrefs().restBeats);
   const [punctuationPauses, setPunctuationPauses] = useState(() => loadPrefs().punctuationPauses);
   const [randomTwister, setRandomTwister] = useState(() => loadPrefs().randomTwister);
+  const [tutor, setTutor] = useState(true);
   const [exerciseBpm, setExerciseBpm] = useState(() => loadPrefs().bpm);
   const [textBpm, setTextBpm] = useState(() => loadPrefs().textBpm);
   const currentExercise = route.name === "train" ? exerciseById(route.id) : undefined;
@@ -168,7 +169,7 @@ export function App() {
       <header class="top">
         {route.name !== "home" && <button class="ghost icon-button" type="button" onClick={() => menuRef.current?.showModal()} aria-label="Открыть меню" aria-haspopup="dialog" aria-controls="main-menu"><Icon name="menu" /></button>}
         <a class="brand" href="#/">Артикуляция</a>
-        {route.name === "train" && <label class="header-tempo"><span>Темп {textTempo ? "текста" : "упражнений"}</span><select value={bpm} onChange={(event) => {
+        {route.name === "train" && tutor && <label class="header-tempo"><span>Темп {textTempo ? "текста" : "упражнений"}</span><select value={bpm} onChange={(event) => {
           const value = Number((event.currentTarget as HTMLSelectElement).value);
           setBpm(value); savePrefs(textTempo ? { textBpm: value } : { bpm: value });
         }}>{[...new Set([...Array.from({ length: 22 }, (_, index) => 30 + index * 10), bpm])].sort((a, b) => a - b).map((value) => <option value={value}>{value} BPM</option>)}</select></label>}
@@ -187,6 +188,7 @@ export function App() {
         </div>
       </header>
       <div class="header-actions">
+      {(route.name === "home" || route.name === "train") && <button class="tutor-switch" type="button" role="switch" aria-checked={tutor} onClick={() => { sessionStorage.removeItem(RUN_KEY); setTutor(!tutor); }}><span class="tutor-switch-track" aria-hidden="true"><span /></span><span>{tutor ? "С тьютором" : "Без тьютора"}</span></button>}
       <dialog class="main-menu" id="main-menu" ref={menuRef} aria-labelledby="menu-title">
         <div class="drawer-header"><strong id="menu-title">Навигация</strong><button class="ghost icon-button" type="button" aria-label="Закрыть меню" onClick={() => menuRef.current?.close()}>×</button></div>
         <nav class="main-menu-content" aria-label="Основное меню" onClick={(event) => {
@@ -276,7 +278,7 @@ export function App() {
       {route.name === "list" && <Catalog category={route.category} favorites={collections.favorites} onFavorite={toggleFavorite} prefs={prefs} />}
       {route.name === "collections" && <CollectionsPage collections={collections} onChange={updateCollections} onFavorite={toggleFavorite} prefs={prefs} />}
       {route.name === "train" && (
-        <Trainer exerciseId={route.id} queue={route.queue} at={route.at ?? 0} manual={manual} pulseOn={pulseOn} rounds={rounds} portion={portion} exerciseBpm={exerciseBpm} textBpm={textBpm} countdownBeats={countdownBeats} restBeats={restBeats} punctuationPauses={punctuationPauses} collections={collections} onFavorite={toggleFavorite} />
+        <Trainer exerciseId={route.id} queue={route.queue} at={route.at ?? 0} manual={manual} pulseOn={pulseOn} rounds={rounds} portion={portion} exerciseBpm={exerciseBpm} textBpm={textBpm} countdownBeats={countdownBeats} restBeats={restBeats} punctuationPauses={punctuationPauses} collections={collections} onFavorite={toggleFavorite} tutor={tutor} />
       )}
       {route.name === "history" && <History />}
       <footer class="license-note">
@@ -389,7 +391,7 @@ function CollectionsPage({ collections, onChange, onFavorite, prefs }: { collect
   </main>;
 }
 
-function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exerciseBpm, textBpm, countdownBeats, restBeats, punctuationPauses, collections, onFavorite }: { exerciseId: string; queue?: string; at: number; manual: boolean; pulseOn: boolean; rounds: number; portion: number; exerciseBpm: number; textBpm: number; countdownBeats: number; restBeats: number; punctuationPauses: boolean; collections: Collections; onFavorite: (id: string) => void }) {
+function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exerciseBpm, textBpm, countdownBeats, restBeats, punctuationPauses, collections, onFavorite, tutor }: { exerciseId: string; queue?: string; at: number; manual: boolean; pulseOn: boolean; rounds: number; portion: number; exerciseBpm: number; textBpm: number; countdownBeats: number; restBeats: number; punctuationPauses: boolean; collections: Collections; onFavorite: (id: string) => void; tutor: boolean }) {
   const program = useMemo(() => queue ? sessionProgram(queue) ?? programById(queue) : undefined, [queue]);
   const playlist = useMemo(() => (program ? programPlaylist(program) : []), [program]);
   const slot = playlist[at];
@@ -471,6 +473,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
     sessionId.current = null;
     setRating(null);
     setSaved("");
+    setPreviewWord(null);
     const fresh = createPlayer(exercise?.elements.length ?? 1, rounds);
     if (sessionStorage.getItem(RUN_KEY) === "1") {
       startedAt.current = Date.now();
@@ -478,7 +481,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
     } else {
       setPlayer(fresh);
     }
-  }, [exercise?.id, rounds, queue, at]);
+  }, [exercise?.id, rounds, queue, at, tutor]);
 
 
   const previousManual = useRef(manual);
@@ -499,6 +502,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
   }, [manual]);
 
   useEffect(() => {
+    if (!tutor) return;
     let frame = 0;
     let shownSecond = -1;
     let shownCount = -1;
@@ -548,7 +552,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
     };
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
-  }, [manual, bpm, restBeats, isText, punctuationPauses]);
+  }, [manual, bpm, restBeats, isText, punctuationPauses, tutor]);
 
   useEffect(() => {
     const active = pulseOn && !manual && player.phase === "running";
@@ -580,6 +584,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
   }, [player.phase, followHref]);
 
   useEffect(() => {
+    if (!tutor) return;
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target && /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName)) return;
@@ -603,6 +608,18 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
   });
 
   if (!exercise) return <p>Упражнение не найдено.</p>;
+
+  if (!tutor) return <main class="train self-training">
+    <p class="meta">{program ? `${program.title} · ${slot?.stepTitle ?? ""}` : exercise.group}</p>
+    <h1 class="exercise-title">{exercise.title}</h1>
+    <button class="ghost favorite-training" type="button" onClick={() => onFavorite(exercise.id)} aria-pressed={collections.favorites.includes(exercise.id)}>{collections.favorites.includes(exercise.id) ? "★ В избранном" : "☆ В избранное"}</button>
+    <div class="self-content">{exercise.text ? <p>{exercise.text}</p> : displayRows(exercise.elements, exercise.wordStarts).map((row) => <p>{row.map((token) => token.text).join(" ")}</p>)}</div>
+    <nav class="controls" aria-label="Переход между упражнениями">
+      {prevHref && <a class="ghost" href={prevHref}>← Предыдущее</a>}
+      {followHref && <a class="ghost" href={followHref}>Следующее →</a>}
+    </nav>
+    {exercise.note && <p class="meta">{exercise.note}</p>}
+  </main>;
 
   function goBack() {
     const phase = player.phase === "paused" ? player.held : player.phase;
