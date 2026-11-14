@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
   type Category,
+  type Exercise,
+  type Program,
+  exercises,
   exerciseById,
   exercisesIn,
   programById,
@@ -23,17 +26,48 @@ import {
 } from "./machine";
 import { displayRows } from "./syllables";
 import { clearSessions, listSessions, saveSession, type SessionRecord } from "./store";
-import { loadPrefs, savePrefs } from "./prefs";
+import { loadPrefs, savePrefs, type Prefs } from "./prefs";
+import { loadCollections, saveCollections, type Collections, type CustomBlock } from "./collections";
 
 function isTextExercise(exercise: { id: string; category: string }): boolean {
   return exercise.id.endsWith("-phrase") || exercise.category === "tongue_twisters";
+}
+
+function exerciseDuration(item: Exercise, prefs: Prefs): number {
+  return exercisePlanMs(item.elements.length, item.wordStarts, isTextExercise(item) ? prefs.textBpm : prefs.bpm, prefs.rounds, prefs.portion, prefs.countdownBeats, prefs.restBeats, item.elements, isTextExercise(item) && prefs.punctuationPauses);
+}
+
+function durationLabel(items: Exercise[], prefs: Prefs, addRandom: boolean): string {
+  if (prefs.manual) return "Время зависит от ручного режима";
+  const total = items.reduce((sum, item) => sum + exerciseDuration(item, prefs), 0) + Math.max(0, items.length - 1) * 600;
+  if (!addRandom || !twisters.length) return `Около ${formatLeft(total)}`;
+  const durations = twisters.map((item) => exerciseDuration(item, prefs));
+  return `Около ${formatLeft(total + (items.length ? 600 : 0) + Math.min(...durations))}–${formatLeft(total + (items.length ? 600 : 0) + Math.max(...durations))}`;
+}
+
+const twisters = exercises.filter((item) => item.category === "tongue_twisters");
+const SESSION_BLOCK_KEY = "articulation-session-block";
+
+function beginProgram(program: Program, includeRandom = loadPrefs().randomTwister): void {
+  const steps = program.steps.map((step) => ({ ...step, exerciseIds: [...step.exerciseIds] }));
+  if (includeRandom && twisters.length) {
+    const random = twisters[Math.floor(Math.random() * twisters.length)];
+    steps.push({ title: "Случайная скороговорка", minutes: 0, exerciseIds: [random.id] });
+  }
+  const snapshot: Program = { ...program, steps };
+  const first = programPlaylist(snapshot)[0];
+  if (!first) return;
+  sessionStorage.setItem(SESSION_BLOCK_KEY, JSON.stringify(snapshot));
+  sessionStorage.removeItem(RUN_KEY);
+  location.hash = `#/train/${encodeURIComponent(first.exercise.id)}?queue=${encodeURIComponent(snapshot.id)}&at=0`;
 }
 
 type Route =
   | { name: "home" }
   | { name: "list"; category: Category }
   | { name: "train"; id: string; queue?: string; at?: number }
-  | { name: "history" };
+  | { name: "history" }
+  | { name: "collections" };
 
 function readRoute(): Route {
   const hash = location.hash.replace(/^#/, "") || "/";
@@ -50,6 +84,7 @@ function readRoute(): Route {
   }
   if (bits[0] === "list" && bits[1]) return { name: "list", category: bits[1] as Category };
   if (bits[0] === "history") return { name: "history" };
+  if (bits[0] === "collections") return { name: "collections" };
   return { name: "home" };
 }
 
@@ -84,6 +119,15 @@ function Icon({ name }: { name: string }) {
 
 export function App() {
   const [route, setRoute] = useState<Route>(readRoute);
+  const [collections, setCollections] = useState<Collections>(loadCollections);
+  const [storageError, setStorageError] = useState("");
+  function updateCollections(next: Collections) {
+    try { saveCollections(next); setCollections(next); setStorageError(""); return true; }
+    catch { setStorageError("Не удалось сохранить изменения в браузере."); return false; }
+  }
+  function toggleFavorite(id: string) {
+    updateCollections({ ...collections, favorites: collections.favorites.includes(id) ? collections.favorites.filter((item) => item !== id) : [...collections.favorites, id] });
+  }
   const [theme, setTheme] = useState(() => loadPrefs().theme);
   const [scale, setScale] = useState(() => loadPrefs().scale);
   const [manual, setManual] = useState(() => loadPrefs().manual);
@@ -93,12 +137,14 @@ export function App() {
   const [countdownBeats, setCountdownBeats] = useState(() => loadPrefs().countdownBeats);
   const [restBeats, setRestBeats] = useState(() => loadPrefs().restBeats);
   const [punctuationPauses, setPunctuationPauses] = useState(() => loadPrefs().punctuationPauses);
+  const [randomTwister, setRandomTwister] = useState(() => loadPrefs().randomTwister);
   const [exerciseBpm, setExerciseBpm] = useState(() => loadPrefs().bpm);
   const [textBpm, setTextBpm] = useState(() => loadPrefs().textBpm);
   const currentExercise = route.name === "train" ? exerciseById(route.id) : undefined;
   const textTempo = currentExercise ? isTextExercise(currentExercise) : false;
   const bpm = textTempo ? textBpm : exerciseBpm;
   const setBpm = textTempo ? setTextBpm : setExerciseBpm;
+  const prefs: Prefs = { theme, scale, bpm: exerciseBpm, textBpm, rounds, manual, pulse: pulseOn, portion, countdownBeats, restBeats, punctuationPauses, randomTwister };
   const menuRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -152,10 +198,11 @@ export function App() {
           <a href="#/">Главная</a>
           {lists.map((item) => <a href={`#/list/${item.category}`}><Icon name={item.category} />{item.title}</a>)}
           <a href="#/history"><Icon name="history" />История</a>
+          <a href="#/collections">★ Избранное и мои блоки</a>
           <span class="menu-heading">Программы</span>
           {programs.map((program) => {
             const first = programPlaylist(program)[0];
-            return first ? <a href={`#/train/${first.exercise.id}?queue=${program.id}&at=0`}>{program.title}</a> : null;
+            return first ? <a href={`#/train/${first.exercise.id}?queue=${program.id}&at=0`} onClick={(event) => { event.preventDefault(); beginProgram(program); }}>{program.title}</a> : null;
           })}
         </nav>
       </dialog>
@@ -218,13 +265,18 @@ export function App() {
               setPunctuationPauses(value); savePrefs({ punctuationPauses: value });
             }}><option value="on">Включены</option><option value="off">Выключены</option></select>
           </label>
+          <label class="field">Случайная скороговорка в конце
+            <select value={randomTwister ? "on" : "off"} onChange={(event) => { const value = event.currentTarget.value === "on"; setRandomTwister(value); savePrefs({ randomTwister: value }); }}><option value="off">Выключена</option><option value="on">Включена</option></select>
+          </label>
         </div>
       </details>
       </div>
-      {route.name === "home" && <Home />}
-      {route.name === "list" && <Catalog category={route.category} />}
+      {storageError && <p class="notice" role="alert">{storageError}</p>}
+      {route.name === "home" && <Home prefs={prefs} />}
+      {route.name === "list" && <Catalog category={route.category} favorites={collections.favorites} onFavorite={toggleFavorite} prefs={prefs} />}
+      {route.name === "collections" && <CollectionsPage collections={collections} onChange={updateCollections} onFavorite={toggleFavorite} prefs={prefs} />}
       {route.name === "train" && (
-        <Trainer exerciseId={route.id} queue={route.queue} at={route.at ?? 0} manual={manual} pulseOn={pulseOn} rounds={rounds} portion={portion} exerciseBpm={exerciseBpm} textBpm={textBpm} countdownBeats={countdownBeats} restBeats={restBeats} punctuationPauses={punctuationPauses} />
+        <Trainer exerciseId={route.id} queue={route.queue} at={route.at ?? 0} manual={manual} pulseOn={pulseOn} rounds={rounds} portion={portion} exerciseBpm={exerciseBpm} textBpm={textBpm} countdownBeats={countdownBeats} restBeats={restBeats} punctuationPauses={punctuationPauses} collections={collections} onFavorite={toggleFavorite} />
       )}
       {route.name === "history" && <History />}
       <footer class="license-note">
@@ -234,8 +286,7 @@ export function App() {
   );
 }
 
-function Home() {
-  const prefs = loadPrefs();
+function Home({ prefs }: { prefs: Prefs }) {
   return (
     <main>
       <h1>Тренировка речи без аккаунта.</h1>
@@ -248,21 +299,18 @@ function Home() {
           <a class="chip" href={`#/list/${item.category}`}><Icon name={item.category} />{item.title}</a>
         ))}
         <a class="chip" href="#/history"><Icon name="history" />История</a>
+        <a class="chip" href="#/collections">★ Избранное и мои блоки</a>
       </nav>
       <section class="grid">
         {programs.map((program) => {
           const playlist = programPlaylist(program);
           const first = playlist[0];
           if (!first) return null;
-          const total = playlist.reduce(
-            (sum, item) => sum + exercisePlanMs(item.exercise.elements.length, item.exercise.wordStarts, isTextExercise(item.exercise) ? prefs.textBpm : prefs.bpm, prefs.rounds, prefs.portion, prefs.countdownBeats, prefs.restBeats, item.exercise.elements, isTextExercise(item.exercise) && prefs.punctuationPauses),
-            0,
-          );
           return (
-            <a class="card" href={`#/train/${first.exercise.id}?queue=${program.id}&at=0`}>
+            <a class="card" href={`#/train/${first.exercise.id}?queue=${program.id}&at=0`} onClick={(event) => { event.preventDefault(); beginProgram(program); }}>
               <span class="card-arrow"><Icon name="arrow" /></span>
               <strong>{program.title}</strong>
-              <span>{formatLeft(total)} при этом темпе · план {program.durationMinutesTarget} мин · {program.steps.length} блоков</span>
+              <span>{durationLabel(playlist.map((item) => item.exercise), prefs, prefs.randomTwister)} · план {program.durationMinutesTarget} мин · {program.steps.length} блоков</span>
             </a>
           );
         })}
@@ -271,26 +319,78 @@ function Home() {
   );
 }
 
-function Catalog({ category }: { category: Category }) {
+function Catalog({ category, favorites, onFavorite, prefs }: { category: Category; favorites: string[]; onFavorite: (id: string) => void; prefs: Prefs }) {
   const items = exercisesIn(category);
   const title = lists.find((item) => item.category === category)?.title ?? "Упражнения";
   return (
     <main>
       <h1>{title}</h1>
+      {category === "tongue_twisters" && <><p class="meta">{durationLabel(twisters, prefs, false)}</p><button class="solid" type="button" onClick={() => beginProgram({ id: "all-twisters", title: "Все скороговорки", durationMinutesTarget: 0, steps: [{ title: "Скороговорки", minutes: 0, exerciseIds: twisters.map((item) => item.id) }] }, false)}>Пройти все скороговорки</button></>}
       <div class="grid">
         {items.map((exercise) => (
-          <a class="card" href={`#/train/${exercise.id}`}>
+          <div class="exercise-card"><a class="card" href={`#/train/${exercise.id}`}>
             <strong>{exercise.title}</strong>
             <span>{exercise.group ? `${exercise.group} · ` : ""}сложность {exercise.difficulty}</span>
-          </a>
+          </a><button class="ghost favorite-button" type="button" onClick={() => onFavorite(exercise.id)} aria-pressed={favorites.includes(exercise.id)} aria-label={`${favorites.includes(exercise.id) ? "Убрать из избранного" : "Добавить в избранное"}: ${exercise.title}`}>{favorites.includes(exercise.id) ? "★" : "☆"}</button></div>
         ))}
       </div>
     </main>
   );
 }
 
-function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exerciseBpm, textBpm, countdownBeats, restBeats, punctuationPauses }: { exerciseId: string; queue?: string; at: number; manual: boolean; pulseOn: boolean; rounds: number; portion: number; exerciseBpm: number; textBpm: number; countdownBeats: number; restBeats: number; punctuationPauses: boolean }) {
-  const program = queue ? programById(queue) : undefined;
+function sessionProgram(id: string): Program | undefined {
+  try {
+    const program: Program = JSON.parse(sessionStorage.getItem(SESSION_BLOCK_KEY) ?? "null");
+    if (!program || program.id !== id || !Array.isArray(program.steps)) return undefined;
+    return program;
+  } catch { return undefined; }
+}
+
+function CollectionsPage({ collections, onChange, onFavorite, prefs }: { collections: Collections; onChange: (value: Collections) => boolean; onFavorite: (id: string) => void; prefs: Prefs }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [title, setTitle] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [choice, setChoice] = useState(exercises[0]?.id ?? "");
+  const [error, setError] = useState("");
+  function launch(block: CustomBlock) {
+    const ids = block.exerciseIds.filter((id) => exerciseById(id));
+    if (!ids.length) return;
+    try {
+      beginProgram({ id: block.id, title: block.title, durationMinutesTarget: 0, steps: [{ title: block.title, minutes: 0, exerciseIds: ids }] });
+    } catch { setError("Не удалось открыть блок: хранилище браузера недоступно."); }
+  }
+  function duration(ids: string[]) {
+    const items = ids.map(exerciseById).filter((item): item is Exercise => !!item);
+    return durationLabel(items, prefs, prefs.randomTwister);
+  }
+  function saveBlock() {
+    if (!title.trim() || !selected.length) { setError("Укажите название и добавьте хотя бы одно упражнение."); return; }
+    const block = { id: editingId ?? `custom-${crypto.randomUUID()}`, title: title.trim(), exerciseIds: selected };
+    if (!onChange({ ...collections, blocks: editingId ? collections.blocks.map((item) => item.id === editingId ? block : item) : [...collections.blocks, block] })) return;
+    setEditingId(null); setTitle(""); setSelected([]); setError("");
+  }
+  const favorites = collections.favorites.map(exerciseById).filter((item): item is Exercise => !!item);
+  return <main>
+    <h1>Избранное и мои блоки</h1>
+    <p class="meta">Сохраняется в этом браузере на этом устройстве.</p>
+    {error && <p class="notice" role="alert">{error}</p>}
+    <h2>Избранное</h2>
+    {favorites.length ? <><p class="meta">{duration(favorites.map((item) => item.id))}</p><button class="solid" type="button" onClick={() => launch({ id: "favorites", title: "Избранное", exerciseIds: favorites.map((item) => item.id) })}>Начать избранное</button>
+      <ul class="collection-list">{favorites.map((item) => <li><a href={`#/train/${item.id}`}>{item.title}</a><button class="ghost" type="button" onClick={() => onFavorite(item.id)} aria-label={`Убрать из избранного: ${item.title}`}>★</button></li>)}</ul></> : <p class="meta">Добавьте упражнения в избранное в каталоге или во время занятия.</p>}
+    <h2>Мои блоки</h2>
+    {collections.blocks.map((block) => <div class="card collection-block"><strong>{block.title}</strong><p class="meta">{block.exerciseIds.length} упр. · {duration(block.exerciseIds)}</p><div class="controls"><button class="solid" type="button" onClick={() => launch(block)}>Начать</button><button class="ghost" type="button" onClick={() => { setEditingId(block.id); setTitle(block.title); setSelected([...block.exerciseIds]); }}>Изменить</button><button class="ghost" type="button" onClick={() => { if (confirm(`Удалить блок «${block.title}»?`)) onChange({ ...collections, blocks: collections.blocks.filter((item) => item.id !== block.id) }); }}>Удалить</button></div></div>)}
+    <h2>{editingId ? "Изменить блок" : "Новый блок"}</h2>
+    <label class="field">Название<input value={title} onInput={(event) => setTitle(event.currentTarget.value)} /></label>
+    <label class="field">Упражнение<select value={choice} onChange={(event) => setChoice(event.currentTarget.value)}>{exercises.map((item) => <option value={item.id}>{item.title}</option>)}</select></label>
+    <button class="ghost" type="button" onClick={() => setSelected([...selected, choice])}>Добавить в блок</button>
+    <ol class="collection-list">{selected.map((id, index) => <li><span>{exerciseById(id)?.title ?? `Недоступно: ${id}`}</span><div class="controls"><button class="ghost" type="button" disabled={index === 0} aria-label={`Поднять ${exerciseById(id)?.title ?? id}`} onClick={() => { const next = [...selected]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; setSelected(next); }}>↑</button><button class="ghost" type="button" disabled={index === selected.length - 1} aria-label={`Опустить ${exerciseById(id)?.title ?? id}`} onClick={() => { const next = [...selected]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; setSelected(next); }}>↓</button><button class="ghost" type="button" aria-label={`Убрать ${exerciseById(id)?.title ?? id}`} onClick={() => setSelected(selected.filter((_, position) => position !== index))}>×</button></div></li>)}</ol>
+    {selected.length > 0 && <p class="meta">{duration(selected)}</p>}
+    <div class="controls"><button class="solid" type="button" onClick={saveBlock}>Сохранить блок</button>{editingId && <button class="ghost" type="button" onClick={() => { setEditingId(null); setTitle(""); setSelected([]); }}>Отмена</button>}</div>
+  </main>;
+}
+
+function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exerciseBpm, textBpm, countdownBeats, restBeats, punctuationPauses, collections, onFavorite }: { exerciseId: string; queue?: string; at: number; manual: boolean; pulseOn: boolean; rounds: number; portion: number; exerciseBpm: number; textBpm: number; countdownBeats: number; restBeats: number; punctuationPauses: boolean; collections: Collections; onFavorite: (id: string) => void }) {
+  const program = useMemo(() => queue ? sessionProgram(queue) ?? programById(queue) : undefined, [queue]);
   const playlist = useMemo(() => (program ? programPlaylist(program) : []), [program]);
   const slot = playlist[at];
   const exercise = exerciseById(exerciseId) ?? slot?.exercise;
@@ -378,7 +478,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
     } else {
       setPlayer(fresh);
     }
-  }, [exercise?.id, rounds]);
+  }, [exercise?.id, rounds, queue, at]);
 
 
   const previousManual = useRef(manual);
@@ -574,7 +674,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
     for (let index = at + 1; index < playlist.length; index += 1) {
       if (playlist[index].stepTitle !== slot.stepTitle) break;
       const item = playlist[index].exercise;
-      blockLeft += exercisePlanMs(item.elements.length, item.wordStarts, isTextExercise(item) ? textBpm : exerciseBpm, rounds, portion, countdownBeats, restBeats, item.elements, isTextExercise(item) && punctuationPauses);
+      blockLeft += 600 + exercisePlanMs(item.elements.length, item.wordStarts, isTextExercise(item) ? textBpm : exerciseBpm, rounds, portion, countdownBeats, restBeats, item.elements, isTextExercise(item) && punctuationPauses);
     }
   }
 
@@ -582,8 +682,8 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
     <main class="train">
       <p class="meta">
         {program ? `${program.title} · ${slot?.stepTitle ?? ""}` : exercise.group}
-        {` · упражнение ${formatLeft(exerciseLeft)}`}
-        {blockLeft != null ? ` · блок ${formatLeft(blockLeft)}` : ""}
+        {manual ? " · время зависит от ручного режима" : ` · упражнение ${formatLeft(exerciseLeft)}`}
+        {!manual && blockLeft != null ? ` · блок ${formatLeft(blockLeft)}` : ""}
       </p>
       {series.length > 1 && (
         <nav class="series" aria-label="Упражнения серии">
@@ -604,6 +704,7 @@ function Trainer({ exerciseId, queue, at, manual, pulseOn, rounds, portion, exer
         </nav>
       )}
       <h1 class="exercise-title">{exercise.title}</h1>
+      <button class="ghost favorite-training" type="button" onClick={() => onFavorite(exercise.id)} aria-pressed={collections.favorites.includes(exercise.id)}>{collections.favorites.includes(exercise.id) ? "★ В избранном" : "☆ В избранное"}</button>
       <p class="meta">серия {player.round} из {player.rounds} · {label(player.phase)} · сложность {exercise.difficulty}</p>
       <nav class="series rounds" aria-label="Повторы серии">
         {Array.from({ length: player.rounds }, (_, index) => index + 1).map((round) => (

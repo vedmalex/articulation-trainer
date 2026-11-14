@@ -10,6 +10,7 @@ export type Prefs = {
   countdownBeats: number;
   restBeats: number;
   punctuationPauses: boolean;
+  randomTwister: boolean;
 };
 
 const KEY = "articulation-prefs";
@@ -26,6 +27,7 @@ const DEFAULTS: Prefs = {
   countdownBeats: 2,
   restBeats: 1,
   punctuationPauses: true,
+  randomTwister: false,
 };
 
 export function loadPrefs(): Prefs {
@@ -54,6 +56,7 @@ export function loadPrefs(): Prefs {
     countdownBeats: integerIn(stored.countdownBeats, 1, 5) ?? DEFAULTS.countdownBeats,
     restBeats: integerIn(stored.restBeats, 1, 3) ?? DEFAULTS.restBeats,
     punctuationPauses: typeof stored.punctuationPauses === "boolean" ? stored.punctuationPauses : DEFAULTS.punctuationPauses,
+    randomTwister: typeof stored.randomTwister === "boolean" ? stored.randomTwister : DEFAULTS.randomTwister,
   };
 }
 
